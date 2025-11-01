@@ -1,0 +1,19 @@
+---
+- name: Post-install configuration
+  hosts: all
+  gather_facts: true
+  become: true
+
+  tasks:
+    - name: Set hostname
+      ansible.builtin.hostname:
+        name: "{{ inventory_hostname }}"
+
+    - name: Install base packages
+      ansible.builtin.yum:
+        name:
+          - vim
+          - git
+          - curl
+        state: present
+

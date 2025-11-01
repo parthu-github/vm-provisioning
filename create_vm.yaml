@@ -1,0 +1,61 @@
+---
+- name: Create and start a new VM
+  hosts: localhost
+  gather_facts: false
+  collections:
+    - community.libvirt
+
+  vars:
+    vm_name: "{{ survey_vm_name | default('testvm01') }}"
+    memory: "{{ survey_vm_memory | default(2048) }}"
+    vcpus: "{{ survey_vm_vcpus | default(2) }}"
+    disk_size: "{{ survey_vm_disk | default('20G') }}"
+    base_image: "/var/lib/libvirt/images/rhel9-base.qcow2"
+    disk_path: "/var/lib/libvirt/images/{{ vm_name }}.qcow2"
+    cloud_init_iso: "/var/lib/libvirt/images/{{ vm_name }}-cloudinit.iso"
+
+  tasks:
+    - name: Create VM disk from base image
+      ansible.builtin.command:
+        cmd: "qemu-img create -f qcow2 -b {{ base_image }} {{ disk_path }} {{ disk_size }}"
+      args:
+        creates: "{{ disk_path }}"
+
+    - name: Create cloud-init ISO
+      community.libvirt.cloudinit:
+        name: "{{ vm_name }}"
+        user_data: |
+          #cloud-config
+          hostname: {{ vm_name }}
+          users:
+            - name: ansible
+              groups: sudo
+              ssh_authorized_keys:
+                - {{ lookup('file', '~/.ssh/id_rsa.pub') }}
+          runcmd:
+            - [ yum, -y, update ]
+            - [ systemctl, enable, sshd ]
+        meta_data:
+          instance_id: "{{ vm_name }}"
+          local_hostname: "{{ vm_name }}"
+        path: "{{ cloud_init_iso }}"
+
+    - name: Define and start the VM
+      community.libvirt.virt:
+        name: "{{ vm_name }}"
+        memory: "{{ memory }}"
+        vcpus: "{{ vcpus }}"
+        disks:
+          - path: "{{ disk_path }}"
+          - path: "{{ cloud_init_iso }}"
+        networks:
+          - name: default
+        state: running
+
+    - name: Wait for the VM to boot and respond to ping
+      ansible.builtin.wait_for:
+        host: "{{ vm_name }}"
+        port: 22
+        timeout: 300
+      delegate_to: localhost
+
